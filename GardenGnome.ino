@@ -36,14 +36,6 @@ extern "C" {
 }
 //fill in your own keys and wifi
 //  --------- Config ---------- //
-//AWS IOT config, change these:
-char wifi_ssid[]       = "TeslaNet";
-char wifi_password[]   = "Credit30Woodlands25";
-char aws_endpoint[]    = "a1gmz31ss4vili-ats.iot.us-west-2.amazonaws.com";
-char aws_key[]         = "AKIAINQFV5ITJ6WG4GTQ";
-char aws_secret[]      = "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";
-char aws_region[]      = "us-west-2";
-const char* aws_topic  = "$aws/things/Gnome_1/shadow/update";
 
 int port = 443;
 
