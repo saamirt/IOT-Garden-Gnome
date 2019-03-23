@@ -29,16 +29,14 @@
 #include "CircularByteBuffer.h"
 
 
-
-
 extern "C" {
 #include "user_interface.h"
 }
 //fill in your own keys and wifi
 //  --------- Config ---------- //
+#include "./creds.h"
 
 int port = 443;
-
 
 //MQTT config
 const int maxMQTTpackageSize = 1024;
@@ -117,7 +115,6 @@ bool connect () {
 void subscribe () {
   client.setCallback(callback);
   client.subscribe(aws_topic);
-  //client.subscribe(aws_topic2);
   //subscript to a topic
   Serial.println("MQTT subscribed");
 }
