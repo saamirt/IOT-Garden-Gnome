@@ -3,7 +3,7 @@
 
 #include <Arduino.h>
 #include <Stream.h>
-
+#include <SPI.h>
 
 #include <ESP8266WiFi.h>
 #include <ESP8266WiFiMulti.h>
@@ -28,6 +28,8 @@
 #include "AWSWebSocketClient.h"
 #include "CircularByteBuffer.h"
 
+//Json
+#include <ArduinoJson.h>
 
 extern "C" {
 #include "user_interface.h"
@@ -35,7 +37,8 @@ extern "C" {
 //fill in your own keys and wifi
 //  --------- Config ---------- //
 #include "./creds.h"
-
+const char* aws_topic_state  = "$aws/things/Gnome_1/shadow/update";
+const char* aws_topic_delta = "$aws/things/Gnome_1/shadow/update/delta";
 int port = 443;
 
 //MQTT config
@@ -55,7 +58,50 @@ PubSubClient client(awsWSclient);
 //# of connections
 long connection = 0;
 
+const int soilMoisturePin = D5;
+const int sunlightPin = D7;
+const int LEDPinGreen = D1;
+const int LEDPinRed = D0;
+const int solenoidPin = D3;
+const int wateringTime = 600000; //Set the watering time (10 min for a start)
+const float wateringThreshold = 15; //Value below which the garden gets watered
 
+float soilTemp = 0; //Scaled value of soil temp (degrees F)
+float soilMoistureRaw = 0; //Raw analog input of soil moisture sensor (volts)
+float soilMoisture = 0; //Scaled value of volumetric water content in soil (percent)
+float airTemp = 0; //Air temp (degrees C)
+float heatIndex = 0; //Heat index (degrees C)
+float sunlight = 0; //Sunlight illumination in lux
+float analogValue = 0;
+bool watering = false;
+bool wateredToday = false;
+/*
+  Soil Moisture Reference
+  Air = 0%
+  Really dry soil = 10%
+  Probably as low as you'd want = 20%
+  Well watered = 50%
+  Cup of water = 100%
+*/
+
+void parseTopic(char* message, int length, String parsetopic, bool* var){
+  String datatopic = "";
+  for (int i = 0; i < length; i++) {
+    if(message[i] == '"'){
+      i++;
+      while(message[i] != '"'){
+        datatopic = datatopic + message[i];
+        i++;
+      }
+      if(datatopic == parsetopic){
+        i=i+2;
+        *var = (float)message[i];
+        break;
+      }
+      datatopic = "";
+    }  
+  }
+}
 //generate random mqtt clientID
 char* generateClientID () {
   char* cID = new char[23]();
@@ -67,18 +113,23 @@ char* generateClientID () {
 
 //count messages arrived
 int arrivedcount = 0;
-
-
+StaticJsonDocument<maxMQTTpackageSize> jsonBuffer;
 //callback to handle mqtt messages
 void callback(char* topic, byte* payload, unsigned int length) {
+  char message[length];
+  //strcpy(topic,message);
   Serial.print("Message arrived [");
   Serial.print(topic);
   Serial.print("] ");
   for (int i = 0; i < length; i++) {
-    Serial.print((char)payload[i]);
+    message[i] = (char)payload[i];
+    Serial.print(message[i]);
   }
   Serial.println();
+  parseTopic(message,length,"Watered",&watering);
+  
 }
+
 
 
 //connects to websocket layer and mqtt layer
@@ -114,8 +165,8 @@ bool connect () {
 //subscribe to a mqtt topic
 void subscribe () {
   client.setCallback(callback);
-  client.subscribe(aws_topic);
-  //subscript to a topic
+  //subscribe to a topic
+  client.subscribe(aws_topic_delta);
   Serial.println("MQTT subscribed");
 }
 
@@ -128,7 +179,7 @@ void sendsensormessage (String aT, String sT, String sM, String sL, String w ) {
   //send a message
   char buf[200];
   strcpy(buf, publish_message);
-  int rc = client.publish(aws_topic, buf);
+  int rc = client.publish(aws_topic_state, buf);
   if (rc) {
     Serial.println("Publish succeeded");
   } else {
@@ -142,8 +193,8 @@ void sendmessage () {
   //send a message
   char buf[100];
   strcpy(buf, "{\"state\":{\"reported\":{\"temp\": 12.3, \"light\": 456, \"soil_moisture\": 789}}}");
-  int rc = client.publish(aws_topic, buf);
-  //int rc2 = client.publish(aws_topic2, buf);
+  int rc = client.publish(aws_topic_state, buf);
+  //int rc2 = client.publish(aws_topic_state2, buf);
 }
 
 // Data wire is plugged into pin 4 on the Arduino
@@ -158,33 +209,6 @@ DallasTemperature sensors(&oneWire);
 /********************************************************************/
 
 ////////We need some real time clock to keep system up to date///////////
-
-
-const int soilMoisturePin = D5;
-const int sunlightPin = D7;
-const int LEDPinGreen = D1;
-const int LEDPinRed = D0;
-const int solenoidPin = D3;
-const int wateringTime = 600000; //Set the watering time (10 min for a start)
-const float wateringThreshold = 15; //Value below which the garden gets watered
-
-float soilTemp = 0; //Scaled value of soil temp (degrees F)
-float soilMoistureRaw = 0; //Raw analog input of soil moisture sensor (volts)
-float soilMoisture = 0; //Scaled value of volumetric water content in soil (percent)
-float airTemp = 0; //Air temp (degrees C)
-float heatIndex = 0; //Heat index (degrees C)
-float sunlight = 0; //Sunlight illumination in lux
-float analogValue = 0;
-bool watering = false;
-bool wateredToday = false;
-/*
-  Soil Moisture Reference
-  Air = 0%
-  Really dry soil = 10%
-  Probably as low as you'd want = 20%
-  Well watered = 50%
-  Cup of water = 100%
-*/
 
 
 
@@ -318,7 +342,7 @@ void loop() {
 
 
   //Water the plants//////////////////////////
-  if ((soilMoisture < wateringThreshold) && (wateredToday = false)) {
+  if (((soilMoisture < wateringThreshold)||watering) && (wateredToday = false)) {
     //water the garden
     digitalWrite(solenoidPin, HIGH);
     delay(wateringTime);
@@ -330,7 +354,7 @@ void loop() {
   }  else {
     //Serial.print("FALSE");
   }
-  delay(5000);
+  delay(1000);
 
 
   //Serial.println("////////////////////////////////////////////////////////////");
@@ -343,11 +367,16 @@ void loop() {
     //publish
     //sendmessage();
     sendsensormessage(String(airTemp), String(soilTemp), String(soilMoisture), String(sunlight), String(wateredToday) );
-    delay(5000);
+    delay(1000);
   } else {
     //handle reconnection
     connect ();
   }
+  //watering = doc["state"]["Watered"];
+  //String output;
+  //serializeJson(doc, output);
+  Serial.println(watering);
+  digitalWrite(D3, watering);
 
   Serial.println("//////////////////////////////////////////////////////////");
 }
