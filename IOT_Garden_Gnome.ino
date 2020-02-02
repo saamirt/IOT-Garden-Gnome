@@ -6,30 +6,7 @@
 #include <SPI.h>
 
 #include <ESP8266WiFi.h>
-#include <ESP8266WiFiMulti.h>
-
-
-//AWS
-#include "sha256.h"
-#include "Utils.h"
-
-
-//WEBSockets
-#include <Hash.h>
-#include <WebSocketsClient.h>
-
-
-//MQTT PUBSUBCLIENT LIB
-#include <PubSubClient.h>
-
-
-//AWS MQTT Websocket
-#include "Client.h"
-#include "AWSWebSocketClient.h"
-#include "CircularByteBuffer.h"
-
-//Json
-#include <ArduinoJson.h>
+#include <ESP8266HTTPClient.h>
 
 extern "C" {
 #include "user_interface.h"
@@ -37,23 +14,6 @@ extern "C" {
 //fill in your own keys and wifi
 //  --------- Config ---------- //
 #include "./creds.h"
-const char* aws_topic_state  = "$aws/things/Gnome_1/shadow/update";
-const char* aws_topic_delta = "$aws/things/Gnome_1/shadow/update/delta";
-int port = 443;
-
-//MQTT config
-const int maxMQTTpackageSize = 1024;
-const int maxMQTTMessageHandlers = 1;
-
-
-ESP8266WiFiMulti WiFiMulti;
-
-
-AWSWebSocketClient awsWSclient(1000);
-
-
-PubSubClient client(awsWSclient);
-
 
 //# of connections
 long connection = 0;
@@ -83,120 +43,6 @@ bool wateredToday = false;
   Well watered = 50%
   Cup of water = 100%
 */
-
-void parseTopic(char* message, int length, String parsetopic, bool* var){
-  String datatopic = "";
-  for (int i = 0; i < length; i++) {
-    if(message[i] == '"'){
-      i++;
-      while(message[i] != '"'){
-        datatopic = datatopic + message[i];
-        i++;
-      }
-      if(datatopic == parsetopic){
-        i=i+2;
-        *var = (float)message[i];
-        break;
-      }
-      datatopic = "";
-    }  
-  }
-}
-//generate random mqtt clientID
-char* generateClientID () {
-  char* cID = new char[23]();
-  for (int i = 0; i < 22; i += 1)
-    cID[i] = (char)random(1, 256);
-  return cID;
-}
-
-
-//count messages arrived
-int arrivedcount = 0;
-StaticJsonDocument<maxMQTTpackageSize> jsonBuffer;
-//callback to handle mqtt messages
-void callback(char* topic, byte* payload, unsigned int length) {
-  char message[length];
-  //strcpy(topic,message);
-  Serial.print("Message arrived [");
-  Serial.print(topic);
-  Serial.print("] ");
-  for (int i = 0; i < length; i++) {
-    message[i] = (char)payload[i];
-    Serial.print(message[i]);
-  }
-  Serial.println();
-  parseTopic(message,length,"Watered",&watering);
-  
-}
-
-
-
-//connects to websocket layer and mqtt layer
-bool connect () {
-  if (client.connected()) {
-    client.disconnect ();
-  }
-  //delay is not necessary... it just help us to get a "trustful" heap space value
-  delay (1000);
-  Serial.print (millis ());
-  Serial.print (" - conn: ");
-  Serial.print (++connection);
-  Serial.print (" - (");
-  Serial.print (ESP.getFreeHeap ());
-  Serial.println (")");
-
-  //creating random client id
-  char* clientID = generateClientID ();
-
-  client.setServer(aws_endpoint, port);
-  if (client.connect(clientID)) {
-    Serial.println("connected");
-    return true;
-  } else {
-    Serial.print("failed, rc=");
-    Serial.print(client.state());
-    return false;
-  }
-  Serial.println("-------------------------");
-}
-
-
-//subscribe to a mqtt topic
-void subscribe () {
-  client.setCallback(callback);
-  //subscribe to a topic
-  client.subscribe(aws_topic_delta);
-  Serial.println("MQTT subscribed");
-}
-
-
-//send a message to a mqtt topic
-void sendsensormessage (String aT, String sT, String sM, String sL, String w ) {
-  //
-  String values = "{\"state\":{\"reported\":{\"Air_temp\":" + aT + ", \"Soil_temp\":" + sT + ", \"Sunlight\": " + sL + ", \"soil_moisture\": " + sT + ",\"Watered\": " + w + "}}}";
-  const char *publish_message = values.c_str();
-  //send a message
-  char buf[200];
-  strcpy(buf, publish_message);
-  int rc = client.publish(aws_topic_state, buf);
-  if (rc) {
-    Serial.println("Publish succeeded");
-  } else {
-    Serial.println("Publish failed");
-    Serial.println(values);
-  }
-}
-
-
-void sendmessage () {
-  //send a message
-  char buf[100];
-  strcpy(buf, "{\"state\":{\"reported\":{\"temp\": 12.3, \"light\": 456, \"soil_moisture\": 789}}}");
-  int rc = client.publish(aws_topic_state, buf);
-  //int rc2 = client.publish(aws_topic_state2, buf);
-}
-
 // Data wire is plugged into pin 4 on the Arduino
 #define ONE_WIRE_BUS D4
 /********************************************************************/
@@ -208,12 +54,25 @@ OneWire oneWire(ONE_WIRE_BUS);
 DallasTemperature sensors(&oneWire);
 /********************************************************************/
 
-////////We need some real time clock to keep system up to date///////////
+//send a message to a firebase
+String postsensormessage (String aT, String sT, String sM, String sL, String w ) {
+  //
+  //String values = "{\"state\":{\"reported\":{\"Air_temp\":" + aT + ", \"Soil_temp\":" + sT + ", \"Sunlight\": " + sL + ", \"soil_moisture\": " + sM + ",\"Watered\": " + w + "}}}";
+  return "{\"user\": \"6HyXNaKq1uWWHqOz1LooNRpL9eK2\",\"gnome\": \"gnome1\", \"location\": {\"lat\": 45, \"lng\": 73}, \"light\": "+sL+", \"temperature\": "+aT+", \"soil_humidity\": "+sM +"}";
+}
+
+
+const char* postmessage () {
+  //Post a message
+  return "{\"user\": \"6HyXNaKq1uWWHqOz1LooNRpL9eK2\",\"gnome\": \"gnome1\", \"location\": {\"lat\": 45, \"lng\": 73}, \"light\": 100, \"temperature\": -6, \"soil_humidity\": 50}";
+}
 
 
 
-void error(char *str)
-{
+
+
+
+void error(char *str){
   Serial.print("error: ");
   Serial.println(str);
 
@@ -237,33 +96,24 @@ void print2digits(int number) {
 }
 
 void setup() {
-  wifi_set_sleep_type(NONE_SLEEP_T);
   Serial.begin (115200);
   delay (2000);
   Serial.setDebugOutput(1);
 
 
   //fill with ssid and wifi password
-  WiFiMulti.addAP(wifi_ssid, wifi_password);
+  WiFi.begin(wifi_ssid, wifi_password);
   Serial.println ("connecting to wifi");
-  while (WiFiMulti.run() != WL_CONNECTED) {
-    delay(100);
-    Serial.print (".");
+  while (WiFi.status() != WL_CONNECTED) {  //Wait for the WiFI connection completion
+ 
+    delay(500);
+    Serial.println("Waiting for connection");
+ 
   }
   Serial.println ("\nconnected to network " + String(wifi_ssid) + "\n");
 
 
-  //fill AWS parameters
-  awsWSclient.setAWSRegion(aws_region);
-  awsWSclient.setAWSDomain(aws_endpoint);
-  awsWSclient.setAWSKeyID(aws_key);
-  awsWSclient.setAWSSecretKey(aws_secret);
-  awsWSclient.setUseSSL(true);
-
-  if (connect ()) {
-    subscribe ();
-    sendmessage ();
-  }
+  
 
 
   pinMode(D8, OUTPUT); //LED green pint
@@ -330,8 +180,8 @@ void loop() {
   ///////////For Testing Purpose/////////////////////////////
 //  Serial.print("soilTemp: ");
 //  Serial.print(soilTemp);
-//  Serial.print(", airtemp: ");
-//  Serial.print(airTemp);
+Serial.print(", airtemp: ");
+Serial.print(airTemp);
 //  Serial.print(", soilMoisture: ");
 //  Serial.print(soilMoisture);
 //  Serial.print(", sunlight: ");
@@ -342,7 +192,7 @@ void loop() {
 
 
   //Water the plants//////////////////////////
-  if (((soilMoisture < wateringThreshold)||watering) && (wateredToday = false)) {
+  if (((soilMoisture < wateringThreshold)||watering)) {
     //water the garden
     digitalWrite(solenoidPin, HIGH);
     delay(wateringTime);
@@ -354,24 +204,37 @@ void loop() {
   }  else {
     //Serial.print("FALSE");
   }
-  delay(1000);
 
 
   //Serial.println("////////////////////////////////////////////////////////////");
 
-  //Update Shadow////////////////////////
-  //keep the mqtt up and running
-  if (awsWSclient.connected ()) {
-    client.loop();
-    subscribe ();
-    //publish
-    //sendmessage();
-    sendsensormessage(String(airTemp), String(soilTemp), String(soilMoisture), String(sunlight), String(wateredToday) );
-    delay(1000);
-  } else {
-    //handle reconnection
-    connect ();
+  if(WiFi.status()== WL_CONNECTED){   //Check WiFi connection status
+ 
+    WiFiClient client;
+    HTTPClient http;    //Declare object of class HTTPClient
+    
+    http.begin("http://limitless-forest-10226.herokuapp.com");      //Specify request destination
+    http.addHeader("Content-Type", "application/json");  //Specify content-type header
+    
+    int httpCode = http.POST(postsensormessage(String(airTemp), String(soilTemp), String(soilMoisture), String(sunlight), String(wateredToday)));   //Send the request
+    String payload = http.getString();                  //Get the response payload
+    
+    Serial.println("http Code : " + String(httpCode));   //Print HTTP return code
+    Serial.println("payload : " + payload);    //Print request response payload
+    
+    http.end();  //Close connection
+ 
+  }else{
+  
+    Serial.println("Error in WiFi connection");   
+  
   }
+  
+  delay(30000);  //Send a request every 30 seconds
+ 
+    
+    
+    
   //watering = doc["state"]["Watered"];
   //String output;
   //serializeJson(doc, output);
