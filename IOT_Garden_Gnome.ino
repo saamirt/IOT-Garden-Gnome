@@ -1,3 +1,5 @@
+#include <ArduinoJson.h>
+
 #include <OneWire.h>
 #include <DallasTemperature.h>
 
@@ -53,15 +55,21 @@ OneWire oneWire(ONE_WIRE_BUS);
 // Pass our oneWire reference to Dallas Temperature.
 DallasTemperature sensors(&oneWire);
 /********************************************************************/
-
+const int capacity = JSON_OBJECT_SIZE(3);
+DynamicJsonDocument gnomeHoseDoc(capacity);
 //send a message to a firebase
 String postsensormessage (String aT, String sT, String sM, String sL, String w ) {
   //
   //String values = "{\"state\":{\"reported\":{\"Air_temp\":" + aT + ", \"Soil_temp\":" + sT + ", \"Sunlight\": " + sL + ", \"soil_moisture\": " + sM + ",\"Watered\": " + w + "}}}";
-  return "{\"user\": \"6HyXNaKq1uWWHqOz1LooNRpL9eK2\",\"gnome\": \"gnome1\", \"location\": {\"lat\": 45, \"lng\": 73}, \"light\": "+sL+", \"temperature\": "+aT+", \"soil_humidity\": "+sM +"}";
+  return "{\"user\": \""+King_Kyrie_Key+"\",\"gnome\": \"gnome1\", \"location\": {\"lat\": 45, \"lng\": 73}, \"light\": "+sL+", \"temperature\": "+aT+", \"soil_humidity\": "+sM +"}";
 }
 
-
+String postgnomehoseoff(){
+  return "{\"user\": \""+King_Kyrie_Key+"\",\"gnome\": \"gnome1\",\"hose\": false, \"water_time\": 1}";
+}
+String getgnomehose(){
+  return "{\"user\": \""+King_Kyrie_Key+"\",\"gnome\": \"gnome1\"}";
+}
 const char* postmessage () {
   //Post a message
   return "{\"user\": \"6HyXNaKq1uWWHqOz1LooNRpL9eK2\",\"gnome\": \"gnome1\", \"location\": {\"lat\": 45, \"lng\": 73}, \"light\": 100, \"temperature\": -6, \"soil_humidity\": 50}";
@@ -180,8 +188,8 @@ void loop() {
   ///////////For Testing Purpose/////////////////////////////
 //  Serial.print("soilTemp: ");
 //  Serial.print(soilTemp);
-Serial.print(", airtemp: ");
-Serial.print(airTemp);
+//  Serial.print(", airtemp: ");
+//  Serial.print(airTemp);
 //  Serial.print(", soilMoisture: ");
 //  Serial.print(soilMoisture);
 //  Serial.print(", sunlight: ");
@@ -192,18 +200,24 @@ Serial.print(airTemp);
 
 
   //Water the plants//////////////////////////
-  if (((soilMoisture < wateringThreshold)||watering)) {
-    //water the garden
-    digitalWrite(solenoidPin, HIGH);
-    delay(wateringTime);
-    digitalWrite(solenoidPin, LOW);
+//  if (((soilMoisture < wateringThreshold)||watering)) {
+//    //water the garden
+//    digitalWrite(solenoidPin, HIGH);
+//    delay(wateringTime);
+//    digitalWrite(solenoidPin, LOW);
+//
+//    //Serial.print("TRUE");
+//
+//    wateredToday = true;
+//  }  else {
+//    //Serial.print("FALSE");
+//  }
 
-    //Serial.print("TRUE");
-
-    wateredToday = true;
-  }  else {
-    //Serial.print("FALSE");
-  }
+if(gnomeHoseDoc["hose"]){
+  digitalWrite(solenoidPin, HIGH);
+  delay(gnomeHoseDoc["water_time"].as<int>()*60000);
+  digitalWrite(solenoidPin, LOW);
+}
 
 
   //Serial.println("////////////////////////////////////////////////////////////");
@@ -221,16 +235,51 @@ Serial.print(airTemp);
     
     Serial.println("http Code : " + String(httpCode));   //Print HTTP return code
     Serial.println("payload : " + payload);    //Print request response payload
+
+    http.end();  //Close connection
+
+    
+    if(gnomeHoseDoc["hose"]){
+      Serial.print("gnome hose " );
+      Serial.println(gnomeHoseDoc["hose"].as<char*>());
+      http.begin("http://limitless-forest-10226.herokuapp.com/hose");      //Specify request destination
+      http.addHeader("Content-Type", "application/json");  //Specify content-type header
+      
+      int httpCode = http.POST(postgnomehoseoff());   //Send the request
+      String payload = http.getString();                  //Get the response payload
+      
+      Serial.println("http Code : " + String(httpCode));   //Print HTTP return code
+      Serial.println("payload : " + payload);    //Print request response payload
+  
+      http.end();  //Close connection
+    }
+
+    
+    http.begin("http://limitless-forest-10226.herokuapp.com/hose?user="+King_Kyrie_Key+"&gnome=gnome1");      //Specify request destination
+    http.addHeader("Content-Type", "application/json");  //Specify content-type header
+    
+    httpCode = http.GET();   //Send the request
+    payload = http.getString();                  //Get the response payload
+    
+    Serial.println("http Code : " + String(httpCode));   //Print HTTP return code
+    Serial.println("payload : " + payload);    //Print request response payload
     
     http.end();  //Close connection
- 
+    DeserializationError err = deserializeJson(gnomeHoseDoc, payload);
+    if (err) {
+      Serial.print(F("deserializeJson() failed with code "));
+      Serial.println(err.c_str());
+    }
+
+
   }else{
   
     Serial.println("Error in WiFi connection");   
   
   }
-  
-  delay(30000);  //Send a request every 30 seconds
+
+
+  delay(10000);  //Send a request every 10 seconds
  
     
     
