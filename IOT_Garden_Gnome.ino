@@ -55,8 +55,14 @@ OneWire oneWire(ONE_WIRE_BUS);
 // Pass our oneWire reference to Dallas Temperature.
 DallasTemperature sensors(&oneWire);
 /********************************************************************/
-const int capacity = JSON_OBJECT_SIZE(3);
-DynamicJsonDocument gnomeHoseDoc(capacity);
+const int gnomeHoseDocCapacity = JSON_OBJECT_SIZE(3);
+const int gnomeSensorDataDocCapacity = JSON_OBJECT_SIZE(9);
+
+DynamicJsonDocument gnomeHoseDoc(gnomeHoseDocCapacity);
+DynamicJsonDocument gnomeSensorDataDoc(gnomeSensorDataDocCapacity);
+gnomeSensorDataDoc["user"] = King_Kyrie_Key;
+gnomeSensorDataDoc["gnome"] = "gnome1";
+
 //send a message to a firebase
 String postsensormessage (String aT, String sT, String sM, String sL, String w ) {
   //
@@ -185,39 +191,18 @@ void loop() {
   else {
     soilMoisture = (62.5 * soilMoistureRaw) - 87.5;
   }
-  ///////////For Testing Purpose/////////////////////////////
-//  Serial.print("soilTemp: ");
-//  Serial.print(soilTemp);
-//  Serial.print(", airtemp: ");
-//  Serial.print(airTemp);
-//  Serial.print(", soilMoisture: ");
-//  Serial.print(soilMoisture);
-//  Serial.print(", sunlight: ");
-//  Serial.print(sunlight);
-//  Serial.print(", Watered: ");
-//  Serial.println(wateredToday);
-//  Serial.println();
 
-
-  //Water the plants//////////////////////////
-//  if (((soilMoisture < wateringThreshold)||watering)) {
-//    //water the garden
-//    digitalWrite(solenoidPin, HIGH);
-//    delay(wateringTime);
-//    digitalWrite(solenoidPin, LOW);
-//
-//    //Serial.print("TRUE");
-//
-//    wateredToday = true;
-//  }  else {
-//    //Serial.print("FALSE");
-//  }
-
-if(gnomeHoseDoc["hose"]){
-  digitalWrite(solenoidPin, HIGH);
-  delay(gnomeHoseDoc["water_time"].as<int>()*60000);
-  digitalWrite(solenoidPin, LOW);
-}
+  
+  gnomeSensorDataDoc["light"] = sunlight;
+  gnomeSensorDataDoc["temperature"] = airTemp;
+  gnomeSensorDataDoc["soil_humidity"] = soilMoisture;
+  
+  
+  if(gnomeHoseDoc["hose"]){
+    digitalWrite(solenoidPin, HIGH);
+    delay(gnomeHoseDoc["water_time"].as<int>()*60000);
+    digitalWrite(solenoidPin, LOW);
+  }
 
 
   //Serial.println("////////////////////////////////////////////////////////////");
@@ -231,6 +216,8 @@ if(gnomeHoseDoc["hose"]){
     http.addHeader("Content-Type", "application/json");  //Specify content-type header
     
     int httpCode = http.POST(postsensormessage(String(airTemp), String(soilTemp), String(soilMoisture), String(sunlight), String(wateredToday)));   //Send the request
+    int httpCode = http.POST());   //Send the request
+
     String payload = http.getString();                  //Get the response payload
     
     Serial.println("http Code : " + String(httpCode));   //Print HTTP return code
@@ -281,14 +268,37 @@ if(gnomeHoseDoc["hose"]){
 
   delay(10000);  //Send a request every 10 seconds
  
-    
-    
-    
-  //watering = doc["state"]["Watered"];
-  //String output;
-  //serializeJson(doc, output);
-  Serial.println(watering);
-  digitalWrite(D3, watering);
 
   Serial.println("//////////////////////////////////////////////////////////");
 }
+
+
+
+
+///////////For Testing Purpose/////////////////////////////
+//  Serial.print("soilTemp: ");
+//  Serial.print(soilTemp);
+//  Serial.print(", airtemp: ");
+//  Serial.print(airTemp);
+//  Serial.print(", soilMoisture: ");
+//  Serial.print(soilMoisture);
+//  Serial.print(", sunlight: ");
+//  Serial.print(sunlight);
+//  Serial.print(", Watered: ");
+//  Serial.println(wateredToday);
+//  Serial.println();
+
+
+  //Water the plants//////////////////////////
+//  if (((soilMoisture < wateringThreshold)||watering)) {
+//    //water the garden
+//    digitalWrite(solenoidPin, HIGH);
+//    delay(wateringTime);
+//    digitalWrite(solenoidPin, LOW);
+//
+//    //Serial.print("TRUE");
+//
+//    wateredToday = true;
+//  }  else {
+//    //Serial.print("FALSE");
+//  }
