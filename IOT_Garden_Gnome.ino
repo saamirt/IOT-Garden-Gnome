@@ -55,13 +55,12 @@ OneWire oneWire(ONE_WIRE_BUS);
 // Pass our oneWire reference to Dallas Temperature.
 DallasTemperature sensors(&oneWire);
 /********************************************************************/
-const int gnomeHoseDocCapacity = JSON_OBJECT_SIZE(3);
+const int gnomeHoseDocCapacity = JSON_OBJECT_SIZE(5);
 const int gnomeSensorDataDocCapacity = JSON_OBJECT_SIZE(9);
 
 DynamicJsonDocument gnomeHoseDoc(gnomeHoseDocCapacity);
 DynamicJsonDocument gnomeSensorDataDoc(gnomeSensorDataDocCapacity);
-gnomeSensorDataDoc["user"] = King_Kyrie_Key;
-gnomeSensorDataDoc["gnome"] = "gnome1";
+
 
 //send a message to a firebase
 String postsensormessage (String aT, String sT, String sM, String sL, String w ) {
@@ -71,10 +70,10 @@ String postsensormessage (String aT, String sT, String sM, String sL, String w )
 }
 
 String postgnomehoseoff(){
-  return "{\"user\": \""+King_Kyrie_Key+"\",\"gnome\": \"gnome1\",\"hose\": false, \"water_time\": 1}";
+  return "{\"user\": \""+King_Kyrie_Key+"\",\"gnome\": \""+gnomeId+"\",\"hose\": false, \"water_time\": 1}";
 }
 String getgnomehose(){
-  return "{\"user\": \""+King_Kyrie_Key+"\",\"gnome\": \"gnome1\"}";
+  return "{\"user\": \""+King_Kyrie_Key+"\",\"gnome\": \""+gnomeId+"\"}";
 }
 const char* postmessage () {
   //Post a message
@@ -139,7 +138,10 @@ void setup() {
   pinMode(A0, INPUT);
 
 
-
+  gnomeHoseDoc["user"] = King_Kyrie_Key;
+  gnomeHoseDoc["gnome"] = gnomeId;
+  gnomeSensorDataDoc["user"] = King_Kyrie_Key;
+  gnomeSensorDataDoc["gnome"] = gnomeId;
 
   sensors.begin();
   Serial.println("--------------------");
@@ -211,12 +213,14 @@ void loop() {
  
     WiFiClient client;
     HTTPClient http;    //Declare object of class HTTPClient
-    
-    http.begin("http://limitless-forest-10226.herokuapp.com");      //Specify request destination
+
+    http.begin("http://limitless-forest-10226.herokuapp.com/data");      //Specify request destination
     http.addHeader("Content-Type", "application/json");  //Specify content-type header
-    
-    int httpCode = http.POST(postsensormessage(String(airTemp), String(soilTemp), String(soilMoisture), String(sunlight), String(wateredToday)));   //Send the request
-    int httpCode = http.POST());   //Send the request
+
+    String msg;
+    serializeJson(gnomeSensorDataDoc, msg);
+    //int httpCode = http.POST(postsensormessage(String(airTemp), String(soilTemp), String(soilMoisture), String(sunlight), String(wateredToday)));   //Send the request
+    int httpCode = http.POST(msg);   //Send the request
 
     String payload = http.getString();                  //Get the response payload
     
@@ -242,7 +246,7 @@ void loop() {
     }
 
     
-    http.begin("http://limitless-forest-10226.herokuapp.com/hose?user="+King_Kyrie_Key+"&gnome=gnome1");      //Specify request destination
+    http.begin("http://limitless-forest-10226.herokuapp.com/hose?user="+King_Kyrie_Key+"&gnome="+gnomeId);      //Specify request destination
     http.addHeader("Content-Type", "application/json");  //Specify content-type header
     
     httpCode = http.GET();   //Send the request
@@ -256,6 +260,8 @@ void loop() {
     if (err) {
       Serial.print(F("deserializeJson() failed with code "));
       Serial.println(err.c_str());
+    }else{
+      serializeJsonPretty(gnomeHoseDoc, Serial);
     }
 
 
