@@ -1,3 +1,4 @@
+#include <FS.h>
 #include <ArduinoJson.h>
 
 #include <OneWire.h>
@@ -10,6 +11,10 @@
 #include <ESP8266WiFi.h>
 #include <ESP8266HTTPClient.h>
 
+#include <DNSServer.h>
+#include <ESP8266WebServer.h>
+#include <WiFiManager.h>         // https://github.com/tzapu/WiFiManager
+
 extern "C" {
 #include "user_interface.h"
 }
@@ -17,9 +22,11 @@ extern "C" {
 //  --------- Config ---------- //
 #include "./creds.h"
 
-//# of connections
-long connection = 0;
+// Set web server port number to 88
+WiFiServer server(88);
 
+/********************************************************************/
+//Pin definitions
 const int soilMoisturePin = D5;
 const int sunlightPin = D7;
 const int LEDPinGreen = D1;
@@ -27,7 +34,7 @@ const int LEDPinRed = D0;
 const int solenoidPin = D3;
 const int wateringTime = 600000; //Set the watering time (10 min for a start)
 const float wateringThreshold = 15; //Value below which the garden gets watered
-
+/********************************************************************/
 float soilTemp = 0; //Scaled value of soil temp (degrees F)
 float soilMoistureRaw = 0; //Raw analog input of soil moisture sensor (volts)
 float soilMoisture = 0; //Scaled value of volumetric water content in soil (percent)
@@ -45,6 +52,7 @@ bool wateredToday = false;
   Well watered = 50%
   Cup of water = 100%
 */
+/********************************************************************/
 // Data wire is plugged into pin 4 on the Arduino
 #define ONE_WIRE_BUS D4
 /********************************************************************/
@@ -55,13 +63,23 @@ OneWire oneWire(ONE_WIRE_BUS);
 // Pass our oneWire reference to Dallas Temperature.
 DallasTemperature sensors(&oneWire);
 /********************************************************************/
-const int gnomeHoseDocCapacity = JSON_OBJECT_SIZE(8);
-const int gnomeSensorDataDocCapacity = JSON_OBJECT_SIZE(9);
-
+//Define Size of json documents
+const int gnomeHoseDocCapacity = JSON_OBJECT_SIZE(10);
+const int gnomeSensorDataDocCapacity = JSON_OBJECT_SIZE(14);
+//Create json documents
 DynamicJsonDocument gnomeHoseDoc(gnomeHoseDocCapacity);
 DynamicJsonDocument gnomeSensorDataDoc(gnomeSensorDataDocCapacity);
+/********************************************************************/
+//flag for saving data
+bool shouldSaveConfig = false;
+/********************************************************************/
 
 
+//callback notifying us of the need to save config
+void saveConfigCallback () {
+  Serial.println("Should save config");
+  shouldSaveConfig = true;
+}
 
 void error(char *str){
   Serial.print("error: ");
@@ -99,23 +117,67 @@ void setup() {
   delay (2000);
   Serial.setDebugOutput(1);
 
+  String id = String(ESP.getChipId());
+  // WiFiManager
+  // Local intialization. Once its business is done, there is no need to keep it around
+  WiFiManager wifiManager;
+  
+  // Uncomment and run it once, if you want to erase all the stored information
+  wifiManager.resetSettings(); //Just for development remove later
+  
+  WiFiManagerParameter gnome_credential("gnomeId", "gnome id", "", 30," type='hidden'"); 
+  wifiManager.addParameter(&gnome_credential);
+  WiFiManagerParameter user_credential("userId", "user id", "", 30," type='hidden'"); 
+  wifiManager.addParameter(&user_credential);
+  
+  WiFiManagerParameter gnome_credential_script("<script type='text/javascript' defer>  window.addEventListener('message', event => { if (event.origin.startsWith('http://localhost:3000')) { console.log(event.data); document.getElementById('gnomeId').value = event.data.gnomeId; document.getElementById('userId').value = event.data.userId; }});</script>");
+  wifiManager.addParameter(&gnome_credential_script);
+  WiFiManagerParameter handle_submit_script("<script type='text/javascript' defer>  saveButton = document.getElementsByTagName('button'); saveButton.onclick = () => {window.parent.postMessage('Network Saved', 'http://localhost:3000');}</script>");
+  wifiManager.addParameter(&handle_submit_script);
+  // set custom ip for portal
+  //wifiManager.setAPConfig(IPAddress(10,0,1,1), IPAddress(10,0,1,1), IPAddress(255,255,255,0));
 
+  // fetches ssid and pass from eeprom and tries to connect
+  // if it does not connect it starts an access point with the specified name
+  // here  "AutoConnectAP"
+  // and goes into a blocking loop awaiting configuration
+  wifiManager.autoConnect("GnomeAutoConnectAP");
+  // or use this for auto generated name ESP + ChipID
+  //wifiManager.autoConnect();
+  
+  // if you get here you have connected to the WiFi
+  Serial.println("Connected.");
+  
+  gnomeId = gnome_credential.getValue();
+  King_Kyrie_Key = user_credential.getValue();
+
+    //Save credentials into msg docs
+    gnomeHoseDoc["user"] = King_Kyrie_Key;
+    gnomeHoseDoc["gnome"] = gnomeId;
+    gnomeSensorDataDoc["user"] = King_Kyrie_Key;
+    gnomeSensorDataDoc["gnome"] = gnomeId;
+    
   //fill with ssid and wifi password
-  WiFi.begin(wifi_ssid, wifi_password);
-  Serial.println ("connecting to wifi");
-  while (WiFi.status() != WL_CONNECTED) {  //Wait for the WiFI connection completion
- 
-    delay(500);
-    Serial.println("Waiting for connection");
- 
+//  WiFi.begin(wifi_ssid, wifi_password);
+//  Serial.println ("connecting to wifi");
+  if (WiFi.status() == WL_CONNECTED) {  //Wait for the WiFI connection completion
+    WiFiClient client;
+    HTTPClient http;
+    String msg = "";
+    String payload = "";
+    serializeJson(gnomeHoseDoc, msg);
+    do{
+      payload = postRequest(http, "http://limitless-forest-10226.herokuapp.com/connect", msg );  
+    }while(payload != "The Gnome "+gnomeId+" has been connected");
+    msg = "";
   }
-  Serial.println ("\nconnected to network " + String(wifi_ssid) + "\n");
+//  Serial.println ("\nconnected to network " + String(wifi_ssid) + "\n");
 
 
   
 
 
-  pinMode(D8, OUTPUT); //LED green pint
+  pinMode(D8, OUTPUT); //LED green pin
   pinMode(LEDPinRed, OUTPUT); //LED red pin
   pinMode(soilMoisturePin, OUTPUT); //LED green pint
   pinMode(sunlightPin, OUTPUT); //LED red pin
@@ -124,10 +186,6 @@ void setup() {
   pinMode(A0, INPUT);
 
 
-  gnomeHoseDoc["user"] = King_Kyrie_Key;
-  gnomeHoseDoc["gnome"] = gnomeId;
-  gnomeSensorDataDoc["user"] = King_Kyrie_Key;
-  gnomeSensorDataDoc["gnome"] = gnomeId;
 
   sensors.begin();
   Serial.println("--------------------");
@@ -184,11 +242,12 @@ void loop() {
   gnomeSensorDataDoc["light"] = sunlight;
   gnomeSensorDataDoc["temperature"] = airTemp;
   gnomeSensorDataDoc["soil_humidity"] = soilMoisture;
+  gnomeSensorDataDoc["state"]["hose"]["is_active"] = gnomeHoseDoc["is_active"];
   
   
-  if(gnomeHoseDoc["hose"]){
+  if(gnomeHoseDoc["is_active"]){
     digitalWrite(solenoidPin, HIGH);
-    delay(gnomeHoseDoc["water_time"].as<int>()*60000);
+    delay(gnomeHoseDoc["duration"].as<int>()*60000);
     digitalWrite(solenoidPin, LOW);
   }
 
@@ -220,24 +279,25 @@ void loop() {
     msg = "";
 
     
-    if(gnomeHoseDoc["hose"]){
-      http.begin("http://limitless-forest-10226.herokuapp.com/hose");      //Specify request destination
-      http.addHeader("Content-Type", "application/json");  //Specify content-type header
+    if(gnomeHoseDoc["is_active"]){
+//      http.begin("http://limitless-forest-10226.herokuapp.com/hose");      //Specify request destination
+//      http.addHeader("Content-Type", "application/json");  //Specify content-type header
 
       gnomeHoseDoc["user"] = King_Kyrie_Key;
       gnomeHoseDoc["gnome"] = gnomeId;
-      gnomeHoseDoc["hose"] = false;
+      gnomeHoseDoc["is_active"] = false;
       serializeJson(gnomeHoseDoc, msg);
       //int httpCode = http.POST(postgnomehoseoff());   //Send the request
-      Serial.println(msg);
-      int httpCode = http.POST(msg);
+      String payload = postRequest(http, "http://limitless-forest-10226.herokuapp.com/hose", msg );
+      //Serial.println(msg);
       msg = "";
-      String payload = http.getString();                  //Get the response payload
-      
-      Serial.println("http Code : " + String(httpCode));   //Print HTTP return code
-      Serial.println("payload : " + payload);    //Print request response payload
-  
-      http.end();  //Close connection
+//      int httpCode = http.POST(msg);
+//      String payload = http.getString();                  //Get the response payload
+//      
+//      Serial.println("http Code : " + String(httpCode));   //Print HTTP return code
+//      Serial.println("payload : " + payload);    //Print request response payload
+//  
+//      http.end();  //Close connection
     }
 
     
