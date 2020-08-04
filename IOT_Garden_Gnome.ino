@@ -130,9 +130,9 @@ void setup() {
   WiFiManagerParameter user_credential("userId", "user id", "", 30," type='hidden'"); 
   wifiManager.addParameter(&user_credential);
   
-  WiFiManagerParameter gnome_credential_script("<script type='text/javascript' defer>  window.addEventListener('message', event => { if (event.origin.startsWith('http://localhost:3000')) { console.log(event.data); document.getElementById('gnomeId').value = event.data.gnomeId; document.getElementById('userId').value = event.data.userId; }});</script>");
+  WiFiManagerParameter gnome_credential_script("<script>  window.addEventListener('message', event => { if (event.origin.startsWith('http://localhost:3000')) { console.log(event.data); document.getElementById('gnomeId').value = event.data.gnomeId; document.getElementById('userId').value = event.data.userId; }});</script>");
   wifiManager.addParameter(&gnome_credential_script);
-  WiFiManagerParameter handle_submit_script("<script type='text/javascript' defer>  saveButton = document.getElementsByTagName('button'); saveButton.onclick = () => {window.parent.postMessage('Network Saved', 'http://localhost:3000');}</script>");
+  WiFiManagerParameter handle_submit_script("<script type='text/javascript' defer async> window.onload = ()=> { let saveButton = document.getElementsByTagName('button')[0]; console.log(saveButton); saveButton.onclick = () => {window.parent.postMessage('Network Saved', 'http://localhost:3000');}}</script>");
   wifiManager.addParameter(&handle_submit_script);
   // set custom ip for portal
   //wifiManager.setAPConfig(IPAddress(10,0,1,1), IPAddress(10,0,1,1), IPAddress(255,255,255,0));
