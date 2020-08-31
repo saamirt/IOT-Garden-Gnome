@@ -22,6 +22,10 @@ extern "C" {
 //  --------- Config ---------- //
 #include "./creds.h"
 
+#define SECOND (1000UL)
+#define MINUTE (SECOND * 60UL)
+#define HOUR (MINUTE * 60UL)
+
 // Set web server port number to 88
 WiFiServer server(88);
 
@@ -29,7 +33,7 @@ WiFiServer server(88);
 //Pin definitions
 const int soilMoisturePin = D5;
 const int sunlightPin = D7;
-const int LEDPinGreen = D1;
+const int LEDPinGreen = D8;
 const int LEDPinRed = D0;
 const int solenoidPin = D3;
 const int wateringTime = 600000; //Set the watering time (10 min for a start)
@@ -114,23 +118,22 @@ String postRequest(HTTPClient &http, String endpoint, String msg ){
 }
 void setup() {
   Serial.begin (115200);
-  delay (2000);
+  delay (2*SECOND); //wait 2 seconds
   Serial.setDebugOutput(1);
 
-  String id = String(ESP.getChipId());
   // WiFiManager
   // Local intialization. Once its business is done, there is no need to keep it around
   WiFiManager wifiManager;
   
   // Uncomment and run it once, if you want to erase all the stored information
-  wifiManager.resetSettings(); //Just for development remove later
+  //wifiManager.resetSettings(); //Just for development remove later
   
   WiFiManagerParameter gnome_credential("gnomeId", "gnome id", "", 30," type='hidden'"); 
   wifiManager.addParameter(&gnome_credential);
   WiFiManagerParameter user_credential("userId", "user id", "", 30," type='hidden'"); 
   wifiManager.addParameter(&user_credential);
   
-  WiFiManagerParameter gnome_credential_script("<script>  window.addEventListener('message', event => { if (event.origin.startsWith('http://localhost:3000')) { console.log(event.data); document.getElementById('gnomeId').value = event.data.gnomeId; document.getElementById('userId').value = event.data.userId; }});</script>");
+  WiFiManagerParameter gnome_credential_script("<script>  window.addEventListener('message', event => { if (event.origin.startsWith('http://localhost:3000')) { console.log(event.data); document.getElementById('gnomeId').value = event.data.id; document.getElementById('userId').value = event.data.userId; }});</script>");
   wifiManager.addParameter(&gnome_credential_script);
   WiFiManagerParameter handle_submit_script("<script type='text/javascript' defer async> window.onload = ()=> { let saveButton = document.getElementsByTagName('button')[0]; console.log(saveButton); saveButton.onclick = () => {window.parent.postMessage('Network Saved', 'http://localhost:3000');}}</script>");
   wifiManager.addParameter(&handle_submit_script);
@@ -177,7 +180,7 @@ void setup() {
   
 
 
-  pinMode(D8, OUTPUT); //LED green pin
+  pinMode(LEDPinGreen, OUTPUT); //LED green pin
   pinMode(LEDPinRed, OUTPUT); //LED red pin
   pinMode(soilMoisturePin, OUTPUT); //LED green pint
   pinMode(sunlightPin, OUTPUT); //LED red pin
@@ -197,21 +200,18 @@ void setup() {
 void loop() {
   //Three blinks means start of new cycle
   for (int i = 0; i < 3; i++) {
-    digitalWrite(D8, HIGH);
+    digitalWrite(LEDPinGreen, HIGH);
     delay(100);
-    digitalWrite(D8, LOW);
+    digitalWrite(LEDPinGreen, LOW);
     delay(100);
   }
-  //Reset wateredToday variable if it's a new day
-  //  if (!(now.day() == rtc.now().day())) {
-  //    wateredToday = false;
-  //  }
+
 
 
   //Collect Variables
   sensors.requestTemperatures(); // Send the command to get temperature readings
-  soilTemp = sensors.getTempCByIndex(0);
-  airTemp = sensors.getTempCByIndex(1);
+  airTemp = sensors.getTempCByIndex(0);
+  soilTemp = sensors.getTempCByIndex(1);
   delay(20);
 
 
@@ -260,19 +260,7 @@ void loop() {
     HTTPClient http;    //Declare object of class HTTPClient
     String msg;
 
-//    http.begin("http://limitless-forest-10226.herokuapp.com/data");      //Specify request destination
-//    http.addHeader("Content-Type", "application/json");  //Specify content-type header
-//
-//    serializeJson(gnomeSensorDataDoc, msg);
-//    //int httpCode = http.POST(postsensormessage(String(airTemp), String(soilTemp), String(soilMoisture), String(sunlight), String(wateredToday)));   //Send the request
-//    int httpCode = http.POST(msg);   //Send the request
-//    msg = "";
-//    String payload = http.getString();                  //Get the response payload
-//    
-//    Serial.println("http Code : " + String(httpCode));   //Print HTTP return code
-//    Serial.println("payload : " + payload);    //Print request response payload
-//
-//    http.end();  //Close connection
+
 
     serializeJson(gnomeSensorDataDoc, msg);
     String payload = postRequest(http, "http://limitless-forest-10226.herokuapp.com/data", msg );
@@ -280,24 +268,14 @@ void loop() {
 
     
     if(gnomeHoseDoc["is_active"]){
-//      http.begin("http://limitless-forest-10226.herokuapp.com/hose");      //Specify request destination
-//      http.addHeader("Content-Type", "application/json");  //Specify content-type header
 
       gnomeHoseDoc["user"] = King_Kyrie_Key;
       gnomeHoseDoc["gnome"] = gnomeId;
       gnomeHoseDoc["is_active"] = false;
       serializeJson(gnomeHoseDoc, msg);
-      //int httpCode = http.POST(postgnomehoseoff());   //Send the request
       String payload = postRequest(http, "http://limitless-forest-10226.herokuapp.com/hose", msg );
-      //Serial.println(msg);
       msg = "";
-//      int httpCode = http.POST(msg);
-//      String payload = http.getString();                  //Get the response payload
-//      
-//      Serial.println("http Code : " + String(httpCode));   //Print HTTP return code
-//      Serial.println("payload : " + payload);    //Print request response payload
-//  
-//      http.end();  //Close connection
+
     }
 
     
@@ -324,8 +302,8 @@ void loop() {
   
   }
 
-
-  delay(10000);  //Send a request every 10 seconds
+  //delay(10*SECOND);  //Send a request every 10 seconds
+  delay(HOUR - 650);  // Send a request every hour
  
 
   Serial.println("//////////////////////////////////////////////////////////");
@@ -361,3 +339,7 @@ void loop() {
 //  }  else {
 //    //Serial.print("FALSE");
 //  }
+/********************************************************************/
+//Solenoid requires 2v input, 12v power, 250mA => 3watts
+
+/********************************************************************/
