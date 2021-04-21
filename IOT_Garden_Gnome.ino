@@ -1,4 +1,5 @@
 #include <FS.h>
+#include <LittleFS.h>
 #include <ArduinoJson.h>
 
 #include <OneWire.h>
@@ -84,6 +85,12 @@ void saveConfigCallback () {
   Serial.println("Should save config");
   shouldSaveConfig = true;
 }
+void resetGnome(){
+  delay(3000);
+  //reset and try again
+  ESP.reset();
+  delay(5000);
+}
 
 void error(char *str){
   Serial.print("error: ");
@@ -102,9 +109,9 @@ float analogSensorRead(int PIN) {
   return analogValue;
 }
 
-String postRequest(HTTPClient &http, String endpoint, String msg ){
+String postRequest(WiFiClient &client, HTTPClient &http, String endpoint, String msg ){
 
-    http.begin(endpoint);      //Specify request destination
+    http.begin(client, endpoint);      //Specify request destination
     http.addHeader("Content-Type", "application/json");  //Specify content-type header
 
     int httpCode = http.POST(msg);   //Send the request
@@ -121,48 +128,118 @@ void setup() {
   delay (2*SECOND); //wait 2 seconds
   Serial.setDebugOutput(1);
 
+
+  //clean FS, for testing
+  LittleFS.format();
+
+  if(LittleFS.begin()){
+    Serial.println("mounted file system");
+    if (LittleFS.exists("/config.json")) {
+      //file exists, reading and loading
+      Serial.println("reading config file");
+      File configFile = LittleFS.open("/config.json", "r");
+      if (configFile) {
+        Serial.println("opened config file");
+        size_t size = configFile.size();
+        // Allocate a buffer to store contents of the file.
+        std::unique_ptr<char[]> buf(new char[size]);
+
+        configFile.readBytes(buf.get(), size);
+        DynamicJsonDocument doc(gnomeHoseDocCapacity);
+        DeserializationError err = deserializeJson(doc, buf.get());
+        if(err){
+          Serial.print(F("deserializeJson() failed with code "));
+          Serial.println(err.c_str());
+          resetGnome();
+        }else {
+          Serial.println("\nparsed json");
+          //Test purpose
+          serializeJson(doc, Serial);
+          gnomeHoseDoc["user"]        = doc["user"];
+          gnomeHoseDoc["gnome"]       = doc["gnome"];
+          gnomeSensorDataDoc["user"]  = doc["user"];
+          gnomeSensorDataDoc["gnome"] = doc["gnome"];
+
+        }
+        configFile.close();
+      }
+    }
+  } else {
+    Serial.println("failed to mount FS");
+    //resetGnome();
+  }
+  //end read
+
+  //Add gnone and user id input parameters
+  WiFiManagerParameter gnome_credential("gnomeId", "gnome id", "", 30," type='hidden'"); 
+  WiFiManagerParameter user_credential("userId", "user id", "", 30," type='hidden'"); 
+
+  //Hide the gnome and user id input from user and add scripts to grap window messages
+  WiFiManagerParameter gnome_credential_script("<script>  window.addEventListener('message', event => { if (event.origin.startsWith('http://localhost:3000')) { console.log(event.data); document.getElementById('gnomeId').value = event.data.id; document.getElementById('userId').value = event.data.userId; }});</script>");
+  WiFiManagerParameter handle_submit_script("<script type='text/javascript' defer async> window.onload = ()=> { let saveButton = document.getElementsByTagName('button')[0]; console.log(saveButton); saveButton.onclick = () => {window.parent.postMessage('Network Saved', 'http://localhost:3000');}}</script>");
+  
   // WiFiManager
   // Local intialization. Once its business is done, there is no need to keep it around
   WiFiManager wifiManager;
-  
   // Uncomment and run it once, if you want to erase all the stored information
   //wifiManager.resetSettings(); //Just for development remove later
+  //set config save notify callback
+  wifiManager.setSaveConfigCallback(saveConfigCallback);
   
-  WiFiManagerParameter gnome_credential("gnomeId", "gnome id", "", 30," type='hidden'"); 
+
+  
+  
   wifiManager.addParameter(&gnome_credential);
-  WiFiManagerParameter user_credential("userId", "user id", "", 30," type='hidden'"); 
   wifiManager.addParameter(&user_credential);
-  
-  WiFiManagerParameter gnome_credential_script("<script>  window.addEventListener('message', event => { if (event.origin.startsWith('http://localhost:3000')) { console.log(event.data); document.getElementById('gnomeId').value = event.data.id; document.getElementById('userId').value = event.data.userId; }});</script>");
   wifiManager.addParameter(&gnome_credential_script);
-  WiFiManagerParameter handle_submit_script("<script type='text/javascript' defer async> window.onload = ()=> { let saveButton = document.getElementsByTagName('button')[0]; console.log(saveButton); saveButton.onclick = () => {window.parent.postMessage('Network Saved', 'http://localhost:3000');}}</script>");
   wifiManager.addParameter(&handle_submit_script);
   // set custom ip for portal
   //wifiManager.setAPConfig(IPAddress(10,0,1,1), IPAddress(10,0,1,1), IPAddress(255,255,255,0));
 
+
+//sets timeout until configuration portal gets turned off
+  //useful to make it all retry or go to sleep
+  //in seconds
+  //wifiManager.setTimeout(50000);
   // fetches ssid and pass from eeprom and tries to connect
   // if it does not connect it starts an access point with the specified name
   // here  "AutoConnectAP"
   // and goes into a blocking loop awaiting configuration
-  wifiManager.autoConnect("GnomeAutoConnectAP");
-  // or use this for auto generated name ESP + ChipID
-  //wifiManager.autoConnect();
+  if(!wifiManager.autoConnect("GnomeAutoConnectAP")){
+    Serial.println("failed to the connect and hit timeout");
+    resetGnome();
+  }
   
   // if you get here you have connected to the WiFi
   Serial.println("Connected.");
   
-  gnomeId = gnome_credential.getValue();
-  King_Kyrie_Key = user_credential.getValue();
+  //gnomeId = gnome_credential.getValue();
+  //King_Kyrie_Key = user_credential.getValue();
 
-    //Save credentials into msg docs
-    gnomeHoseDoc["user"] = King_Kyrie_Key;
-    gnomeHoseDoc["gnome"] = gnomeId;
-    gnomeSensorDataDoc["user"] = King_Kyrie_Key;
-    gnomeSensorDataDoc["gnome"] = gnomeId;
-    
+  //Save credentials into msg docs
+  gnomeHoseDoc["user"] = user_credential.getValue();
+  gnomeHoseDoc["gnome"] = gnome_credential.getValue();;
+  gnomeSensorDataDoc["user"] = user_credential.getValue();
+  gnomeSensorDataDoc["gnome"] = gnome_credential.getValue();;
+
+  if(shouldSaveConfig){
+    Serial.println("saving config");
+    DynamicJsonDocument doc(gnomeHoseDocCapacity);
+    doc["user"] =  gnomeHoseDoc["user"];
+    doc["gnome"] = gnomeHoseDoc["gnome"];
+
+    File configFile = LittleFS.open("/config.json","w");
+    if(!configFile){
+      Serial.println("failed to open config file for writing");
+    }
+    serializeJson(doc, Serial);
+    serializeJson(doc, configFile);
+    configFile.close();
+    //end save
+  }
   //fill with ssid and wifi password
-//  WiFi.begin(wifi_ssid, wifi_password);
-//  Serial.println ("connecting to wifi");
+  //WiFi.begin(wifi_ssid, wifi_password);
+  //Serial.println ("connecting to wifi");
   if (WiFi.status() == WL_CONNECTED) {  //Wait for the WiFI connection completion
     WiFiClient client;
     HTTPClient http;
@@ -170,8 +247,8 @@ void setup() {
     String payload = "";
     serializeJson(gnomeHoseDoc, msg);
     do{
-      payload = postRequest(http, "http://limitless-forest-10226.herokuapp.com/connect", msg );  
-    }while(payload != "The Gnome "+gnomeId+" has been connected");
+      payload = postRequest(client, http, "http://limitless-forest-10226.herokuapp.com/connect", msg );  
+    }while(payload != "The Gnome "+gnomeHoseDoc["gnome"].as<String>()+" has been connected");
     msg = "";
   }
 //  Serial.println ("\nconnected to network " + String(wifi_ssid) + "\n");
@@ -252,7 +329,7 @@ void loop() {
   }
 
 
-  //Serial.println("////////////////////////////////////////////////////////////");
+  Serial.println("////////////////////////////////////////////////////////////");
 
   if(WiFi.status()== WL_CONNECTED){   //Check WiFi connection status
  
@@ -261,25 +338,25 @@ void loop() {
     String msg;
 
 
-
+    serializeJson(gnomeSensorDataDoc, Serial);
     serializeJson(gnomeSensorDataDoc, msg);
-    String payload = postRequest(http, "http://limitless-forest-10226.herokuapp.com/data", msg );
+    String payload = postRequest(client, http, "http://limitless-forest-10226.herokuapp.com/data", msg );
     msg = "";
 
     
     if(gnomeHoseDoc["is_active"]){
 
-      gnomeHoseDoc["user"] = King_Kyrie_Key;
-      gnomeHoseDoc["gnome"] = gnomeId;
+      gnomeHoseDoc["user"] = gnomeSensorDataDoc["user"];
+      gnomeHoseDoc["gnome"] = gnomeSensorDataDoc["gnome"];
       gnomeHoseDoc["is_active"] = false;
       serializeJson(gnomeHoseDoc, msg);
-      String payload = postRequest(http, "http://limitless-forest-10226.herokuapp.com/hose", msg );
+      String payload = postRequest(client, http, "http://limitless-forest-10226.herokuapp.com/hose", msg );
       msg = "";
 
     }
 
     
-    http.begin("http://limitless-forest-10226.herokuapp.com/hose?user="+King_Kyrie_Key+"&gnome="+gnomeId);      //Specify request destination
+    http.begin(client, "http://limitless-forest-10226.herokuapp.com/hose?user="+gnomeSensorDataDoc["user"].as<String>()+"&gnome="+gnomeSensorDataDoc["gnome"].as<String>());      //Specify request destination
     http.addHeader("Content-Type", "application/json");  //Specify content-type header
     
     int httpCode = http.GET();   //Send the request
@@ -302,8 +379,8 @@ void loop() {
   
   }
 
-  //delay(10*SECOND);  //Send a request every 10 seconds
-  delay(HOUR - 650);  // Send a request every hour
+  delay(10*SECOND);  //Send a request every 10 seconds
+  //delay(HOUR - 650);  // Send a request every hour
  
 
   Serial.println("//////////////////////////////////////////////////////////");
