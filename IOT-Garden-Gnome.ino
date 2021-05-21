@@ -21,7 +21,7 @@ extern "C" {
 }
 //fill in your own keys and wifi
 //  --------- Config ---------- //
-#include "./creds.h"
+// #include "./creds.h"
 
 #define SECOND (1000UL)
 #define MINUTE (SECOND * 60UL)
@@ -142,11 +142,11 @@ void setup() {
         Serial.println("opened config file");
         size_t size = configFile.size();
         // Allocate a buffer to store contents of the file.
-        std::unique_ptr<char[]> buf(new char[size]);
+        char *buf = new char[size];
 
-        configFile.readBytes(buf.get(), size);
+        configFile.readBytes(buf, size);
         DynamicJsonDocument doc(gnomeHoseDocCapacity);
-        DeserializationError err = deserializeJson(doc, buf.get());
+        DeserializationError err = deserializeJson(doc, buf);
         if(err){
           Serial.print(F("deserializeJson() failed with code "));
           Serial.println(err.c_str());
@@ -162,6 +162,7 @@ void setup() {
 
         }
         configFile.close();
+        delete buf;
       }
     }
   } else {
@@ -182,7 +183,7 @@ void setup() {
   // Local intialization. Once its business is done, there is no need to keep it around
   WiFiManager wifiManager;
   // Uncomment and run it once, if you want to erase all the stored information
-  //wifiManager.resetSettings(); //Just for development remove later
+  wifiManager.resetSettings(); //Just for development remove later
   //set config save notify callback
   wifiManager.setSaveConfigCallback(saveConfigCallback);
   
